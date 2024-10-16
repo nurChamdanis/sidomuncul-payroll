@@ -1,0 +1,68 @@
+stages:
+  - build
+  - deploy
+
+.change_file_permissions: &change_file_permissions |
+  find . -type f -not -path "./vendor/*" -exec chmod 664 {} \;    
+  find . -type d -not -path "./vendor/*" -exec chmod 775 {} \;
+
+.init_ssh: &init_ssh |
+  truncate -s 0 ~/.ssh/id_rsa
+  truncate -s 0 ~/.ssh/config
+  mkdir -p ~/.ssh
+  echo "$SSH_PRIVATE_KEY" >> ~/.ssh/id_rsa
+  chmod 600 ~/.ssh/id_rsa
+  echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+
+build composer:
+  stage: build
+  script:
+    - rm -rf composer.lock
+    - /opt/alt/php82/usr/bin/php /usr/local/bin/composer install --no-interaction --no-progress --no-suggest --prefer-dist
+    - cp env.example .env
+    - /opt/alt/php82/usr/bin/php spark key:generate
+    - /opt/alt/php82/usr/bin/php spark cache:clear
+    - /opt/alt/php82/usr/bin/php spark cache:info
+    - echo "Build composer"
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - vendor/
+      - .env
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-composer
+    paths:
+      - vendor/
+  tags:
+    - ip4.11
+    - shared
+    - cwp
+  only:
+    - development
+    - staging
+
+deploy dev:
+  stage: deploy
+  script:
+    - *init_ssh
+    - echo "Deploy with rsync to devs server Arka 411"
+    - rsync -rav --exclude ".git" --exclude ".gitignore" --delete ./ ${SSH_USER}@${SSH_HOST}:~/payroll-devs.sidomuncul.arkamaya.net
+  only:
+    - development
+  tags:
+    - ip4.11
+    - shared
+    - cwp
+
+deploy staging:
+  stage: deploy
+  script:
+    - *init_ssh
+    - echo "Deploy with rsync to staging server Arka 411"
+    - rsync -rav --exclude ".git" --exclude ".gitignore" --delete ./ ${SSH_USER}@${SSH_HOST}:~/payroll-qa.sidomuncul.arkamaya.net
+  only:
+    - staging
+  tags:
+    - ip4.11
+    - shared
+    - cwp
